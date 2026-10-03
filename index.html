@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EdgeFace – on-device face recognition</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/dist/face-api.js"></script>
+<style>
+:root{
+  --paper:#ffffff; --wash:#f5f7fb; --line:#e3e8f0; --ink:#14213d; --mut:#5b6b86;
+  --acc:#2b3fd9; --acc-soft:#eaedff; --ok:#0b8f5c; --ok-soft:#e5f6ee; --warn:#c26a00; --warn-soft:#fff3e0; --bad:#c92a4b;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--paper);color:var(--ink)}
+body{font-family:'Schibsted Grotesk',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* header */
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 28px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:12px}
+.brand svg{flex:none}
+.brand b{font-size:18px;font-weight:700;letter-spacing:-.01em;display:block;line-height:1.1}
+.brand span{font-size:12.5px;color:var(--mut)}
+.top-r{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);font-size:12.5px;font-weight:500;background:var(--paper)}
+.pill i{width:8px;height:8px;border-radius:50%;background:#aab4c8}
+.pill.ok i{background:var(--ok)} .pill.warn i{background:var(--warn);animation:blink 1s infinite} .pill.bad i{background:var(--bad)}
+@keyframes blink{50%{opacity:.25}}
+
+/* layout */
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 410px;gap:28px;padding:24px 28px 40px;max-width:1500px;margin:0 auto}
+@media(max-width:1020px){.grid{grid-template-columns:1fr;padding:16px}.top{padding:12px 16px}}
+
+/* stage */
+.stage{position:relative;width:100%;aspect-ratio:4/3;background:var(--wash);border:1px solid var(--line);border-radius:18px;overflow:hidden}
+.stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}
+.stage.live video{display:block}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;background:
+  radial-gradient(circle at 1px 1px,#d5dcea 1px,transparent 0) 0 0/22px 22px,var(--wash)}
+.stage.live .empty{display:none}
+.empty h2{font-size:22px;font-weight:700;letter-spacing:-.015em}
+.empty p{color:var(--mut);max-width:420px}
+.hud{position:absolute;left:14px;top:14px;display:none;gap:8px}
+.stage.live .hud{display:flex}
+.chip{background:rgba(255,255,255,.92);border:1px solid var(--line);backdrop-filter:blur(6px);padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;display:inline-flex;align-items:center;gap:7px}
+.chip i{width:8px;height:8px;border-radius:50%;background:var(--bad);animation:blink 1.4s infinite}
+.guide{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:12px;font-weight:600;text-align:center;display:none;max-width:90%;box-shadow:0 8px 28px rgba(20,33,61,.3)}
+.guide.on{display:block}
+.guide small{display:block;font-weight:500;opacity:.75;letter-spacing:.2em;margin-top:2px}
+
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;align-items:center}
+.toolbar .sp{flex:1}
+
+/* buttons */
+.btn{border:1px solid var(--line);background:var(--paper);padding:9px 16px;border-radius:10px;font-weight:600;cursor:pointer;transition:background .15s,border-color .15s}
+.btn:hover{background:var(--wash);border-color:#cfd7e6}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:#2234b8}
+.btn.dng{color:var(--bad)}
+.btn.sm{padding:5px 11px;font-size:12.5px;border-radius:8px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+select,input[type=text]{border:1px solid var(--line);border-radius:10px;padding:9px 12px;background:var(--paper);min-width:0}
+input[type=text]{width:100%}
+
+/* metrics */
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));margin-top:18px;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.metrics div{padding:12px 14px;border-right:1px solid var(--line)}
+.metrics div:last-child{border-right:0}
+.metrics b{font-size:22px;font-weight:700;letter-spacing:-.02em;display:block;line-height:1.2}
+.metrics span{font-size:12px;color:var(--mut)}
+.latency{margin-top:12px;border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.latency .hd{display:flex;justify-content:space-between;font-size:12.5px;color:var(--mut);margin-bottom:6px}
+.latency canvas{width:100%;height:56px;display:block}
+
+/* panel */
+.panel{border:1px solid var(--line);border-radius:18px;display:flex;flex-direction:column;min-height:560px;align-self:start;position:sticky;top:16px;max-height:calc(100vh - 32px)}
+@media(max-width:1020px){.panel{position:static;max-height:none}}
+.tabs{display:flex;border-bottom:1px solid var(--line);padding:0 8px;overflow-x:auto}
+.tabs button{background:none;border:0;padding:14px 12px;font-weight:600;color:var(--mut);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.tabs button.on{color:var(--acc);border-bottom-color:var(--acc)}
+.pane{display:none;padding:18px;overflow-y:auto;flex:1}
+.pane.on{display:block}
+.pane h4{font-size:13px;font-weight:700;margin:18px 0 8px;color:var(--ink)}
+.pane h4:first-child{margin-top:0}
+.note{font-size:12.5px;color:var(--mut);margin-top:6px}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.kpis div{padding:10px 14px;border-right:1px solid var(--line)}
+.kpis div:last-child{border-right:0}
+.kpis b{font-size:22px;display:block;line-height:1.2}
+.kpis span{font-size:12px;color:var(--mut)}
+
+.list{display:flex;flex-direction:column}
+.row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row .av{width:40px;height:40px;border-radius:50%;object-fit:cover;background:var(--wash);flex:none;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--mut)}
+.row .tx{flex:1;min-width:0}
+.row .tx b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .tx span{font-size:12.5px;color:var(--mut)}
+.bar{height:5px;background:var(--wash);border-radius:3px;margin-top:5px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ok);border-radius:3px;transition:width .25s}
+.tag{font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px}
+.tag.ok{background:var(--ok-soft);color:var(--ok)} .tag.wn{background:var(--warn-soft);color:var(--warn)} .tag.ac{background:var(--acc-soft);color:var(--acc)}
+.empty-s{padding:26px 8px;text-align:center;color:var(--mut)}
+
+.how{margin-top:18px;border-left:3px solid var(--acc);padding:2px 0 2px 14px}
+.how p{font-size:13px;color:var(--mut);margin-top:2px}
+.how p b{color:var(--ink);font-weight:600}
+
+.field{margin-top:14px}
+.field label{display:flex;justify-content:space-between;font-weight:600;font-size:13px;margin-bottom:6px}
+.field label em{font-style:normal;color:var(--acc);font-weight:600}
+.field input[type=range]{width:100%;accent-color:var(--acc)}
+.field .hint{font-size:12px;color:var(--mut);margin-top:3px}
+.chk{display:flex;align-items:center;gap:10px;margin-top:12px;font-weight:500;cursor:pointer}
+.chk input{width:17px;height:17px;accent-color:var(--acc)}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+
+/* modal + toast */
+.modal{position:fixed;inset:0;background:rgba(20,33,61,.4);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
+.modal.on{display:flex}
+.modal .card{background:#fff;border-radius:16px;padding:22px;width:min(440px,100%);box-shadow:0 20px 60px rgba(20,33,61,.3)}
+.modal h3{font-size:18px;margin-bottom:8px}
+.modal .mb{color:var(--mut);margin-bottom:12px}
+.modal .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.modal table{width:100%;border-collapse:collapse;color:var(--ink)}
+.modal td,.modal th{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left;font-size:13px}
+.modal th{color:var(--mut);font-weight:600}
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);background:var(--ink);color:#fff;padding:10px 18px;border-radius:10px;font-weight:500;opacity:0;pointer-events:none;transition:.25s;z-index:60;max-width:90%}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <svg width="38" height="38" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+      <rect width="40" height="40" rx="11" fill="#2b3fd9"/>
+      <path d="M11 16v-3a2 2 0 0 1 2-2h3M29 16v-3a2 2 0 0 0-2-2h-3M11 24v3a2 2 0 0 0 2 2h3M29 24v3a2 2 0 0 1-2 2h-3" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+      <circle cx="16.5" cy="18.5" r="1.7" fill="#fff"/><circle cx="23.5" cy="18.5" r="1.7" fill="#fff"/>
+      <path d="M16.5 24c1.8 1.8 5.2 1.8 7 0" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+    <div><b>EdgeFace</b><span>Multi-face recognition that runs entirely on your device</span></div>
+  </div>
+  <div class="top-r">
+    <span class="pill" id="statusPill"><i></i><span id="statusTxt">Loading models</span></span>
+    <span class="pill"><i style="background:var(--ok)"></i>No data leaves this device</span>
+  </div>
+</header>
+
+<main class="grid">
+  <section>
+    <div class="stage" id="stage">
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="hud"><span class="chip"><i></i>Live</span><span class="chip" id="hudFaces">0 faces</span></div>
+      <div class="guide" id="guide"></div>
+      <div class="empty" id="empty">
+        <svg width="64" height="64" viewBox="0 0 40 40" fill="none"><path d="M8 15v-4a3 3 0 0 1 3-3h4M32 15v-4a3 3 0 0 0-3-3h-4M8 25v4a3 3 0 0 0 3 3h4M32 25v4a3 3 0 0 1-3 3h-4" stroke="#2b3fd9" stroke-width="2" stroke-linecap="round"/><circle cx="15" cy="18" r="1.6" fill="#2b3fd9"/><circle cx="25" cy="18" r="1.6" fill="#2b3fd9"/><path d="M15 25c2.5 2.4 7.5 2.4 10 0" stroke="#2b3fd9" stroke-width="2" stroke-linecap="round"/></svg>
+        <h2>Start the camera to recognise faces</h2>
+        <p>Enroll people in the Enroll tab, then watch them get identified live. Everything is processed in your browser.</p>
+        <button class="btn pri" id="btnStart2">Start camera</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <button class="btn pri" id="btnStart">Start camera</button>
+      <select id="camSel" title="Camera" style="max-width:190px"><option value="">Default camera</option></select>
+      <select id="preset" title="Performance preset">
+        <option value="balanced">Balanced preset</option>
+        <option value="ultra">Ultra-light preset</option>
+        <option value="accuracy">High-accuracy preset</option>
+      </select>
+      <span class="sp"></span>
+      <button class="btn" id="btnBench">Benchmark device</button>
+      <button class="btn" id="btnSnap">Save snapshot</button>
+    </div>
+
+    <div class="metrics">
+      <div><b id="mFps">0</b><span>Frames analysed per second</span></div>
+      <div><b id="mLat">0 ms</b><span>Total per frame</span></div>
+      <div><b id="mDet">0 ms</b><span>Face detection</span></div>
+      <div><b id="mEmb">0 ms</b><span>Face embedding</span></div>
+      <div><b id="mSize">–</b><span>Detector size (px)</span></div>
+      <div><b id="mBack">–</b><span>Compute backend</span></div>
+    </div>
+    <div class="latency">
+      <div class="hd"><span>Frame latency, last 60 frames</span><span id="mSaved">–</span></div>
+      <canvas id="spark"></canvas>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <nav class="tabs" role="tablist">
+      <button class="on" data-tab="live">Live</button>
+      <button data-tab="enroll">Enroll</button>
+      <button data-tab="people">People</button>
+      <button data-tab="log">Log</button>
+      <button data-tab="settings">Settings</button>
+    </nav>
+
+    <div class="pane on" id="p-live">
+      <div class="kpis">
+        <div><b id="kKnown">0</b><span>Recognised</span></div>
+        <div><b id="kUnk">0</b><span>Unknown</span></div>
+        <div><b id="kDb">0</b><span>Enrolled</span></div>
+      </div>
+      <h4>In frame now</h4>
+      <div class="list" id="roster"><div class="empty-s">Nobody in frame yet.</div></div>
+
+      <div class="how">
+        <h4 style="margin-top:0">Why it stays fast on small hardware</h4>
+        <p><b>Track, don’t re-detect identity.</b> Each face gets a tracker ID, so the heavy recognition step runs only for new or uncertain faces.</p>
+        <p style="margin-top:8px"><b>Vote across frames.</b> An identity is confirmed only after consistent matches, which removes one-frame mistakes.</p>
+        <p style="margin-top:8px"><b>Auto-governor.</b> The detector size shrinks or grows by itself to hold your target frame rate.</p>
+      </div>
+    </div>
+
+    <div class="pane" id="p-enroll">
+      <h4>Person’s name</h4>
+      <input type="text" id="enName" placeholder="e.g. Aisha Khan" autocomplete="off">
+      <div class="btns">
+        <button class="btn pri" id="btnGuided">Start guided enrollment</button>
+        <button class="btn" id="btnQuick">Capture one sample</button>
+        <button class="btn" id="btnCancelEnroll" style="display:none">Cancel</button>
+      </div>
+      <p class="note">Guided enrollment captures 5 samples while you look straight, turn to each side, tilt up and smile. Varied angles give the most accurate matching.</p>
+
+      <h4>Or add from photos</h4>
+      <input type="file" id="enFiles" accept="image/*" multiple style="display:none">
+      <button class="btn" id="btnUpload">Choose photos</button>
+      <p class="note">Use clear, front-facing photos with one person each. 3 to 6 photos per person works well.</p>
+
+      <h4>Quality tips</h4>
+      <p class="note">Face the light, keep one person in frame while enrolling, and avoid sunglasses or masks. For 90% or better accuracy, enroll in the same lighting where the device will be used.</p>
+    </div>
+
+    <div class="pane" id="p-people">
+      <div class="list" id="peopleList"></div>
+      <div class="btns">
+        <button class="btn" id="btnExport">Export database</button>
+        <button class="btn" id="btnImport">Import database</button>
+        <button class="btn dng" id="btnWipe">Delete everyone</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json" style="display:none">
+      <p class="note">The database is saved in this browser. Export it to move your enrolled people to another device.</p>
+    </div>
+
+    <div class="pane" id="p-log">
+      <div class="btns" style="margin-top:0">
+        <button class="btn sm" id="btnCsv">Export CSV</button>
+        <button class="btn sm dng" id="btnClearLog">Clear log</button>
+      </div>
+      <div class="list" id="logList" style="margin-top:8px"></div>
+    </div>
+
+    <div class="pane" id="p-settings">
+      <h4>Edge preset values</h4>
+      <div class="field">
+        <label>Detector size <em id="sInputV"></em></label>
+        <select id="sInput"><option value="128">128 px, fastest</option><option value="160">160 px</option><option value="224">224 px, balanced</option><option value="320">320 px, best for distant faces</option></select>
+        <div class="hint">Larger sizes find smaller or farther faces but cost more time.</div>
+      </div>
+      <div class="field">
+        <label>Target frame rate <em id="sCapV"></em></label>
+        <input type="range" id="sCap" min="5" max="30" step="1">
+        <div class="hint">Caps CPU use. Lower values save battery and heat.</div>
+      </div>
+      <label class="chk"><input type="checkbox" id="sGov"> Auto-governor adjusts detector size to hold the target rate</label>
+
+      <h4>Accuracy</h4>
+      <div class="field">
+        <label>Match strictness <em id="sMatchV"></em></label>
+        <input type="range" id="sMatch" min="0.35" max="0.65" step="0.01">
+        <div class="hint">Lower is stricter (fewer false matches). Higher is more forgiving. 0.50 is a good default.</div>
+      </div>
+      <div class="field">
+        <label>Detection confidence <em id="sScoreV"></em></label>
+        <input type="range" id="sScore" min="0.3" max="0.9" step="0.05">
+      </div>
+      <div class="field">
+        <label>Faces identified per frame <em id="sBudgetV"></em></label>
+        <input type="range" id="sBudget" min="1" max="6" step="1">
+        <div class="hint">How many new faces get the heavy embedding step in one frame.</div>
+      </div>
+      <div class="field">
+        <label>Re-verify known faces every <em id="sReV"></em></label>
+        <input type="range" id="sRe" min="10" max="120" step="5">
+      </div>
+
+      <h4>Camera and display</h4>
+      <div class="field">
+        <label>Camera resolution</label>
+        <select id="sCam"><option value="320x240">320 × 240, lightest</option><option value="640x480">640 × 480</option><option value="1280x720">1280 × 720</option></select>
+      </div>
+      <label class="chk"><input type="checkbox" id="sMirror"> Mirror the preview</label>
+      <label class="chk"><input type="checkbox" id="sConf"> Show confidence on labels</label>
+      <label class="chk"><input type="checkbox" id="sLm"> Show facial landmarks</label>
+      <div class="field">
+        <label>Log the same person again after <em id="sCoolV"></em></label>
+        <input type="range" id="sCool" min="5" max="300" step="5">
+      </div>
+    </div>
+  </aside>
+</main>
+
+<div class="modal" id="modal"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Math.random().toString(36).slice(2, 10);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+/* ---------- storage with in-memory fallback ---------- */
+const store = {
+  mem: {},
+  get(k, d) { try { const v = localStorage.getItem(k); if (v !== null) return JSON.parse(v); } catch (e) {} return (k in this.mem) ? this.mem[k] : d; },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { this.mem[k] = v; } }
+};
+
+/* ---------- settings ---------- */
+const DEFAULTS = { inputSize: 160, scoreThr: 0.5, matchThr: 0.5, cap: 15, budget: 2, reverify: 40, camRes: '640x480', mirror: true, showLm: false, showConf: true, governor: true, cooldown: 60, deviceId: '' };
+const S = Object.assign({}, DEFAULTS, store.get('ef.settings', {}));
+const PRESETS = {
+  ultra:    { inputSize: 128, cap: 10, camRes: '320x240',  budget: 1, reverify: 60, scoreThr: 0.5 },
+  balanced: { inputSize: 160, cap: 15, camRes: '640x480',  budget: 2, reverify: 40, scoreThr: 0.5 },
+  accuracy: { inputSize: 320, cap: 20, camRes: '1280x720', budget: 4, reverify: 20, scoreThr: 0.45 }
+};
+const SIZES = [128, 160, 224, 320];
+let effIdx = Math.max(0, SIZES.indexOf(S.inputSize));
+const effSize = () => S.governor ? SIZES[effIdx] : S.inputSize;
+
+/* ---------- database ---------- */
+let db = (store.get('ef.db', []) || []).map(p => ({ ...p, descs: (p.descs || []).map(a => Float32Array.from(a)) }));
+let logs = store.get('ef.log', []) || [];
+function saveDB() {
+  store.set('ef.db', db.map(p => ({ id: p.id, name: p.name, thumb: p.thumb, created: p.created, descs: p.descs.map(d => Array.from(d, v => +v.toFixed(4))) })));
+}
+function saveLogs() { store.set('ef.log', logs.slice(0, 120)); }
+
+/* ---------- ui helpers ---------- */
+let toastT;
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2600); }
+function setStatus(txt, kind) { $('#statusTxt').textContent = txt; $('#statusPill').className = 'pill ' + (kind || ''); }
+function dialog({ title, body = '', input = null, ok = 'OK', cancel = 'Cancel', danger = false }) {
+  return new Promise(res => {
+    const m = $('#modal');
+    m.innerHTML = `<div class="card" role="dialog" aria-modal="true"><h3>${title}</h3><div class="mb">${body}</div>${input !== null ? `<input type="text" id="dlgIn" placeholder="${esc(input)}">` : ''}<div class="acts">${cancel ? '<button class="btn" id="dlgNo">' + cancel + '</button>' : ''}<button class="btn ${danger ? 'dng' : 'pri'}" id="dlgYes">${ok}</button></div></div>`;
+    m.classList.add('on');
+    const inp = $('#dlgIn'); if (inp) inp.focus(); else $('#dlgYes').focus();
+    const close = v => { m.classList.remove('on'); res(v); };
+    $('#dlgYes').onclick = () => close(inp ? inp.value.trim() : true);
+    const no = $('#dlgNo'); if (no) no.onclick = () => close(null);
+    if (inp) inp.onkeydown = e => { if (e.key === 'Enter') $('#dlgYes').click(); };
+  });
+}
+function download(name, blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
+
+/* ---------- tabs ---------- */
+$$('.tabs button').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+function switchTab(t) {
+  $$('.tabs button').forEach(x => x.classList.toggle('on', x.dataset.tab === t));
+  $$('.pane').forEach(p => p.classList.toggle('on', p.id === 'p-' + t));
+}
+
+/* ---------- models ---------- */
+let modelsReady = false, backendName = '–';
+async function loadModels() {
+  if (typeof faceapi === 'undefined') { setStatus('Could not load the AI library. Check your internet connection and reload.', 'bad'); return; }
+  setStatus('Loading models', 'warn');
+  try {
+    let ok = false;
+    try { ok = await faceapi.tf.setBackend('webgl'); } catch (e) {}
+    if (!ok) await faceapi.tf.setBackend('cpu');
+    await faceapi.tf.ready();
+    backendName = faceapi.tf.getBackend();
+    const url = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model/';
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(url),
+      faceapi.nets.faceLandmark68TinyNet.loadFromUri(url),
+      faceapi.nets.faceRecognitionNet.loadFromUri(url)
+    ]);
+    const c = document.createElement('canvas'); c.width = c.height = 160;
+    c.getContext('2d').fillRect(0, 0, 160, 160);
+    await faceapi.detectAllFaces(c, new faceapi.TinyFaceDetectorOptions({ inputSize: 128 })).withFaceLandmarks(true);
+    await faceapi.computeFaceDescriptor(c);
+    modelsReady = true;
+    $('#mBack').textContent = backendName === 'webgl' ? 'GPU' : 'CPU';
+    setStatus('Ready', 'ok');
+  } catch (e) {
+    console.error(e);
+    setStatus('Model loading failed: ' + (e.message || e), 'bad');
+  }
+}
+
+/* ---------- camera ---------- */
+const video = $('#video'), overlay = $('#overlay'), octx = overlay.getContext('2d'), stage = $('#stage');
+let stream = null;
+async function startCam() {
+  if (!modelsReady) { toast('Models are still loading. Please wait a moment.'); return; }
+  if (S.running) return;
+  const [w, h] = S.camRes.split('x').map(Number);
+  const v = { width: { ideal: w }, height: { ideal: h } };
+  if (S.deviceId) v.deviceId = { exact: S.deviceId }; else v.facingMode = 'user';
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: v, audio: false });
+  } catch (e) {
+    dialog({ title: 'Camera not available', body: 'Allow camera access in your browser. If you opened this file in an unusual way, serve it from https or localhost.', ok: 'Close', cancel: null });
+    return;
+  }
+  video.srcObject = stream;
+  await video.play();
+  stage.style.aspectRatio = video.videoWidth + '/' + video.videoHeight;
+  stage.classList.add('live');
+  S.running = true;
+  $('#btnStart').textContent = 'Stop camera'; $('#btnStart').classList.remove('pri');
+  applyMirror(); sizeOverlay();
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    const cur = stream.getVideoTracks()[0].getSettings().deviceId;
+    $('#camSel').innerHTML = devs.map((d, i) => `<option value="${esc(d.deviceId)}" ${d.deviceId === cur ? 'selected' : ''}>${esc(d.label || 'Camera ' + (i + 1))}</option>`).join('');
+  } catch (e) {}
+  setStatus('Recognising', 'ok');
+  detectLoop(); renderLoop();
+}
+function stopCam() {
+  S.running = false;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null; video.srcObject = null;
+  stage.classList.remove('live'); stage.style.aspectRatio = '4/3';
+  tracks = []; enr.active = false; showGuide(null);
+  $('#btnStart').textContent = 'Start camera'; $('#btnStart').classList.add('pri');
+  octx.clearRect(0, 0, overlay.width, overlay.height);
+  renderRoster(); setStatus('Ready', 'ok');
+}
+async function restartCam() { if (S.running) { stopCam(); await sleep(150); startCam(); } }
+$('#btnStart').onclick = $('#btnStart2').onclick = () => S.running ? stopCam() : startCam();
+$('#camSel').onchange = e => { S.deviceId = e.target.value; persist(); restartCam(); };
+function applyMirror() { video.style.transform = S.mirror ? 'scaleX(-1)' : 'none'; }
+function sizeOverlay() { const r = stage.getBoundingClientRect(); overlay.width = Math.round(r.width * dpr); overlay.height = Math.round(r.height * dpr); }
+new ResizeObserver(sizeOverlay).observe(stage);
+
+/* ---------- math ---------- */
+function euclid(a, b) { let s = 0; for (let i = 0; i < 128; i++) { const d = a[i] - b[i]; s += d * d; } return Math.sqrt(s); }
+function iou(a, b) {
+  const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y), x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h);
+  const i = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  return i / (a.w * a.h + b.w * b.h - i + 1e-6);
+}
+const conf = d => 100 / (1 + Math.exp(12 * (d - S.matchThr)));
+function matchDesc(d) {
+  let best = { p: null, d: 9 };
+  for (const p of db) for (const s of p.descs) { const x = euclid(d, s); if (x < best.d) best = { p, d: x }; }
+  return best;
+}
+function getYaw(det) {
+  const p = det.landmarks.positions;
+  return (p[30].x - (p[36].x + p[45].x) / 2) / (p[45].x - p[36].x + 1e-6);
+}
+function cropThumb(b) {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const size = Math.max(b.w || b.width, b.h || b.height) * 1.35;
+  const cx = b.x + (b.w || b.width) / 2, cy = b.y + (b.h || b.height) / 2;
+  c.getContext('2d').drawImage(video, cx - size / 2, cy - size / 2, size, size, 0, 0, 64, 64);
+  return c.toDataURL('image/jpeg', 0.72);
+}
+
+/* ---------- tracker + recognition ---------- */
+let tracks = [], nextId = 1, cycleNo = 0;
+const lastLogged = {};
+let unknownLogAt = 0;
+
+function updateTracks(dets) {
+  const pairs = [];
+  tracks.forEach((t, i) => dets.forEach((d, j) => {
+    const b = d.detection.box; const v = iou(t.box, { x: b.x, y: b.y, w: b.width, h: b.height });
+    if (v > 0.25) pairs.push([v, i, j]);
+  }));
+  pairs.sort((a, b) => b[0] - a[0]);
+  const tu = new Set(), du = new Set();
+  for (const [, i, j] of pairs) {
+    if (tu.has(i) || du.has(j)) continue; tu.add(i); du.add(j);
+    const t = tracks[i], d = dets[j], b = d.detection.box;
+    t.box = { x: b.x, y: b.y, w: b.width, h: b.height }; t.det = d; t.miss = 0; t.age++; t.score = d.detection.score;
+  }
+  tracks.forEach((t, i) => { if (!tu.has(i)) t.miss++; });
+  dets.forEach((d, j) => {
+    if (du.has(j)) return; const b = d.detection.box;
+    const box = { x: b.x, y: b.y, w: b.width, h: b.height };
+    tracks.push({ id: nextId++, box, disp: { ...box }, det: d, miss: 0, age: 1, score: d.detection.score, status: 'new', name: null, pct: 0, hist: [], lastRecog: -999, logged: false, pid: null });
+  });
+  tracks = tracks.filter(t => t.miss <= 4);
+}
+const minFace = () => Math.max(40, video.videoWidth * 0.07);
+function needsRecog(t) {
+  if (t.miss > 0 || t.box.w < minFace() || t.score < 0.45) return false;
+  if (t.status === 'new') return true;
+  const gap = cycleNo - t.lastRecog;
+  return t.status === 'locked' ? gap >= S.reverify : gap >= Math.max(6, S.reverify / 2);
+}
+function applyRecognition(t, desc) {
+  const m = matchDesc(desc);
+  t.lastRecog = cycleNo; t.desc = desc;
+  const known = m.p && m.d < S.matchThr;
+  t.hist.push({ id: known ? m.p.id : null, d: m.d }); if (t.hist.length > 5) t.hist.shift();
+  const fast = known && m.d < S.matchThr * 0.72;                 // very strong match: confirm instantly
+  const counts = {}; t.hist.forEach(h => { const k = h.id || 'unknown'; counts[k] = (counts[k] || 0) + 1; });
+  let key = null, n = 0; for (const k in counts) if (counts[k] > n || (counts[k] === n && k === (t.hist[t.hist.length - 1].id || 'unknown'))) { key = k; n = counts[k]; }
+  if (fast && t.hist.length === 1) { key = m.p.id; n = 2; }
+  if (n < 2) return;
+  if (key === 'unknown') {
+    t.status = 'unknown'; t.name = 'Unknown'; t.pid = null; t.pct = 0;
+    if (!t.logged && t.age > 3) { t.logged = true; logEvent(t, null); }
+  } else {
+    const p = db.find(x => x.id === key); if (!p) return;
+    const ds = t.hist.filter(h => h.id === key).map(h => h.d);
+    const avg = ds.reduce((a, b) => a + b, 0) / ds.length;
+    t.status = 'locked'; t.name = p.name; t.pid = p.id; t.pct = Math.round(conf(avg));
+    if (!t.logged) { t.logged = true; logEvent(t, p); }
+  }
+}
+function logEvent(t, p) {
+  const now = Date.now();
+  if (p) {
+    if (lastLogged[p.id] && now - lastLogged[p.id] < S.cooldown * 1000) return;
+    lastLogged[p.id] = now;
+    logs.unshift({ t: now, name: p.name, pct: t.pct, thumb: cropThumb(t.box) });
+  } else {
+    if (now - unknownLogAt < 10000) return; unknownLogAt = now;
+    logs.unshift({ t: now, name: 'Unknown', pct: 0, thumb: cropThumb(t.box), desc: Array.from(t.desc, v => +v.toFixed(4)) });
+  }
+  logs = logs.slice(0, 150); saveLogs(); renderLog();
+}
+function resetTracks() { tracks.forEach(t => { t.status = 'new'; t.hist = []; t.logged = false; t.lastRecog = -999; }); }
+
+/* ---------- detection loop ---------- */
+let busy = false, lat = [], mDet = 0, mEmb = 0, mTot = 0, fpsC = 0, fpsV = 0, fpsT = performance.now(), govAcc = [], lastUI = 0;
+async function cycle() {
+  if (video.readyState < 2 || !video.videoWidth) return;
+  const t0 = performance.now();
+  const dets = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: effSize(), scoreThreshold: S.scoreThr })).withFaceLandmarks(true);
+  const t1 = performance.now();
+  cycleNo++;
+  updateTracks(dets);
+  if (enr.active) await enrollTick(dets);
+  let emb = 0, done = 0;
+  const need = tracks.filter(needsRecog).sort((a, b) => (a.status === 'new' ? 0 : 1) - (b.status === 'new' ? 0 : 1) || b.box.w - a.box.w);
+  for (const t of need) {
+    if (done >= S.budget) break;
+    const te = performance.now();
+    const canvas = (await faceapi.extractFaces(video, [t.det.alignedRect]))[0];
+    const desc = await faceapi.computeFaceDescriptor(canvas);
+    emb += performance.now() - te; done++;
+    applyRecognition(t, desc);
+  }
+  const t2 = performance.now();
+  mDet = t1 - t0; mEmb = emb; mTot = t2 - t0;
+  lat.push(mTot); if (lat.length > 60) lat.shift();
+  fpsC++;
+  if (t2 - fpsT >= 1000) { fpsV = Math.round(fpsC * 1000 / (t2 - fpsT)); fpsC = 0; fpsT = t2; }
+  if (S.governor) {
+    govAcc.push(mTot);
+    if (govAcc.length >= 10) {
+      const avg = govAcc.reduce((a, b) => a + b, 0) / govAcc.length, budget = 1000 / S.cap; govAcc = [];
+      const maxIdx = Math.max(0, SIZES.indexOf(S.inputSize));
+      if (avg > budget * 1.1 && effIdx > 0) effIdx--;
+      else if (avg < budget * 0.5 && effIdx < maxIdx) effIdx++;
+      if (effIdx > maxIdx) effIdx = maxIdx;
+    }
+  }
+  if (t2 - lastUI > 250) { lastUI = t2; updateMetrics(); renderRoster(); }
+}
+async function detectLoop() {
+  while (S.running) {
+    const t = performance.now();
+    try { await cycle(); } catch (e) { console.error(e); await sleep(200); }
+    const wait = Math.max(0, 1000 / S.cap - (performance.now() - t));
+    await sleep(wait);
+  }
+}
+
+/* ---------- rendering ---------- */
+const COL = { new: '#2b3fd9', locked: '#0b8f5c', unknown: '#c26a00', small: '#8a97ad' };
+function rr(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+function brackets(x, y, w, h, c, lw) {
+  const l = Math.min(w, h) * 0.24;
+  octx.save(); octx.strokeStyle = c; octx.lineWidth = lw; octx.lineCap = 'round'; octx.lineJoin = 'round';
+  octx.beginPath();
+  [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]].forEach(([px, py, dx, dy]) => { octx.moveTo(px + dx * l, py); octx.lineTo(px, py); octx.lineTo(px, py + dy * l); });
+  octx.stroke(); octx.globalAlpha = 0.3; octx.lineWidth = dpr; octx.strokeRect(x, y, w, h); octx.restore();
+}
+function renderLoop() {
+  if (!S.running) return;
+  const cw = overlay.width, ch = overlay.height;
+  octx.clearRect(0, 0, cw, ch);
+  if (video.videoWidth) {
+    const sx = cw / video.videoWidth, sy = ch / video.videoHeight;
+    for (const t of tracks) {
+      for (const k of ['x', 'y', 'w', 'h']) t.disp[k] += (t.box[k] - t.disp[k]) * 0.45;
+      let x = t.disp.x * sx, y = t.disp.y * sy, w = t.disp.w * sx, h = t.disp.h * sy;
+      if (S.mirror) x = cw - x - w;
+      const small = t.status === 'new' && t.box.w < minFace();
+      const col = COL[small ? 'small' : t.status];
+      octx.save(); octx.globalAlpha = t.miss > 0 ? Math.max(0.2, 1 - t.miss * 0.3) : 1;
+      brackets(x, y, w, h, col, 3 * dpr);
+      if (S.showLm && t.det) {
+        octx.fillStyle = col;
+        for (const p of t.det.landmarks.positions) { let px = p.x * sx; if (S.mirror) px = cw - px; octx.beginPath(); octx.arc(px, p.y * sy, 1.6 * dpr, 0, 6.3); octx.fill(); }
+      }
+      let label = small ? 'Too far away' : t.status === 'new' ? 'Analysing' : t.status === 'unknown' ? 'Unknown' : t.name + (S.showConf ? '  ' + t.pct + '%' : '');
+      octx.font = `600 ${13 * dpr}px 'Schibsted Grotesk',system-ui,sans-serif`;
+      const tw = octx.measureText(label).width, pad = 9 * dpr, bh = 26 * dpr, bw = tw + pad * 2;
+      let bx = Math.max(0, Math.min(x, cw - bw)), by = y - bh - 6 * dpr; if (by < 2) by = y + 6 * dpr;
+      octx.fillStyle = col; rr(octx, bx, by, bw, bh, 8 * dpr); octx.fill();
+      octx.fillStyle = '#fff'; octx.textBaseline = 'middle'; octx.fillText(label, bx + pad, by + bh / 2 + dpr * 0.5);
+      if (t.status === 'locked') { // confidence arc under the box
+        octx.fillStyle = 'rgba(255,255,255,.85)'; octx.fillRect(x, y + h + 5 * dpr, w, 4 * dpr);
+        octx.fillStyle = col; octx.fillRect(x, y + h + 5 * dpr, w * t.pct / 100, 4 * dpr);
+      }
+      octx.restore();
+    }
+  }
+  $('#hudFaces').textContent = tracks.filter(t => t.miss === 0).length + ' faces';
+  requestAnimationFrame(renderLoop);
+}
+function updateMetrics() {
+  $('#mFps').textContent = fpsV;
+  $('#mLat').textContent = Math.round(mTot) + ' ms';
+  $('#mDet').textContent = Math.round(mDet) + ' ms';
+  $('#mEmb').textContent = Math.round(mEmb) + ' ms';
+  $('#mSize').textContent = effSize();
+  $('#kDb').textContent = db.length;
+  $('#mSaved').textContent = lat.length ? 'Average ' + Math.round(lat.reduce((a, b) => a + b, 0) / lat.length) + ' ms' : '–';
+  const c = $('#spark'), x = c.getContext('2d'), w = c.width = c.clientWidth * dpr, h = c.height = c.clientHeight * dpr;
+  x.clearRect(0, 0, w, h); if (lat.length < 2) return;
+  const mx = Math.max(40, ...lat);
+  x.beginPath(); lat.forEach((v, i) => { const px = i / 59 * w, py = h - (v / mx) * h * 0.88 - 3 * dpr; i ? x.lineTo(px, py) : x.moveTo(px, py); });
+  x.strokeStyle = '#2b3fd9'; x.lineWidth = 1.8 * dpr; x.lineJoin = 'round'; x.stroke();
+  x.lineTo(w, h); x.lineTo(0, h); x.closePath(); x.fillStyle = 'rgba(43,63,217,.08)'; x.fill();
+}
+function renderRoster() {
+  const live = tracks.filter(t => t.miss === 0).sort((a, b) => a.id - b.id);
+  $('#kKnown').textContent = live.filter(t => t.status === 'locked').length;
+  $('#kUnk').textContent = live.filter(t => t.status === 'unknown').length;
+  $('#kDb').textContent = db.length;
+  $('#roster').innerHTML = live.length ? live.map(t => {
+    const nm = t.status === 'locked' ? esc(t.name) : t.status === 'unknown' ? 'Unknown person' : 'Analysing…';
+    const tag = t.status === 'locked' ? `<span class="tag ok">${t.pct}%</span>` : t.status === 'unknown' ? '<span class="tag wn">Not enrolled</span>' : '<span class="tag ac">Matching</span>';
+    const p = t.pid && db.find(x => x.id === t.pid);
+    const av = p && p.thumb ? `<img class="av" src="${p.thumb}" alt="">` : `<div class="av">${t.status === 'unknown' ? '?' : '…'}</div>`;
+    return `<div class="row">${av}<div class="tx"><b>${nm}</b><span>Track #${t.id}</span>${t.status === 'locked' ? `<div class="bar"><i style="width:${t.pct}%"></i></div>` : ''}</div>${tag}</div>`;
+  }).join('') : '<div class="empty-s">Nobody in frame yet.</div>';
+}
+
+/* ---------- enrollment ---------- */
+const enr = { active: false, name: '', step: 0, descs: [], thumb: null, t0: 0, side: 0 };
+const STEPS = [
+  { t: 'Look straight at the camera', ok: y => Math.abs(y) < 0.12, delay: 600 },
+  { t: 'Turn your head slightly to one side', ok: y => Math.abs(y) > 0.17, delay: 500 },
+  { t: 'Now turn slightly to the other side', ok: (y, e) => Math.abs(y) > 0.17 && Math.sign(y) !== e.side, delay: 500 },
+  { t: 'Tilt your chin up a little, face the camera', ok: y => Math.abs(y) < 0.2, delay: 1600 },
+  { t: 'Give a natural smile', ok: y => Math.abs(y) < 0.15, delay: 900 }
+];
+function showGuide(txt, sub) { const g = $('#guide'); if (!txt) { g.classList.remove('on'); return; } g.innerHTML = esc(txt) + (sub ? `<small>${sub}</small>` : ''); g.classList.add('on'); }
+function dots() { return STEPS.map((_, i) => i < enr.step ? '●' : '○').join(' '); }
+function startEnroll() {
+  const name = $('#enName').value.trim();
+  if (!name) { toast('Enter the person’s name first.'); $('#enName').focus(); return; }
+  if (!S.running) { toast('Start the camera first.'); return; }
+  Object.assign(enr, { active: true, name, step: 0, descs: [], thumb: null, t0: performance.now(), side: 0 });
+  $('#btnCancelEnroll').style.display = ''; $('#btnGuided').disabled = true;
+  showGuide(STEPS[0].t, dots());
+}
+function endEnroll() { enr.active = false; showGuide(null); $('#btnCancelEnroll').style.display = 'none'; $('#btnGuided').disabled = false; }
+async function enrollTick(dets) {
+  const now = performance.now();
+  if (dets.length === 0) return showGuide('No face detected. Move into the frame.', dots());
+  if (dets.length > 1) return showGuide('Only one person should be in frame.', dots());
+  const d = dets[0], b = d.detection.box;
+  if (b.width < Math.max(80, video.videoWidth * 0.17)) return showGuide('Move a little closer to the camera.', dots());
+  if (d.detection.score < 0.6) return showGuide('Face the camera and improve the lighting.', dots());
+  const st = STEPS[enr.step], yaw = getYaw(d), waited = now - enr.t0;
+  showGuide(st.t, dots());
+  if (waited < st.delay) return;
+  if (!(st.ok(yaw, enr) || waited > 9000)) return;
+  const canvas = (await faceapi.extractFaces(video, [d.alignedRect]))[0];
+  const desc = await faceapi.computeFaceDescriptor(canvas);
+  enr.descs.push(Array.from(desc));
+  if (!enr.thumb) enr.thumb = cropThumb({ x: b.x, y: b.y, w: b.width, h: b.height });
+  if (enr.step === 1) enr.side = Math.sign(yaw) || 1;
+  enr.step++; enr.t0 = performance.now();
+  if (enr.step >= STEPS.length) {
+    const n = enr.name; addSamples(n, enr.descs, enr.thumb); endEnroll(); toast(n + ' enrolled with 5 samples.');
+    $('#enName').value = ''; switchTab('live');
+  }
+}
+function addSamples(name, descs, thumb) {
+  let p = db.find(x => x.name.toLowerCase() === name.toLowerCase());
+  if (!p) { p = { id: uid(), name, descs: [], thumb, created: Date.now() }; db.push(p); }
+  if (!p.thumb) p.thumb = thumb;
+  descs.forEach(d => p.descs.push(Float32Array.from(d)));
+  while (p.descs.length > 12) p.descs.shift();
+  saveDB(); resetTracks(); renderPeople(); updateMetrics(); renderRoster();
+}
+$('#btnGuided').onclick = startEnroll;
+$('#btnCancelEnroll').onclick = () => { endEnroll(); toast('Enrollment cancelled.'); };
+$('#btnQuick').onclick = async () => {
+  const name = $('#enName').value.trim();
+  if (!name) return toast('Enter the person’s name first.');
+  const live = tracks.filter(t => t.miss === 0).sort((a, b) => b.box.w - a.box.w);
+  if (!S.running || !live.length) return toast('No face in frame. Start the camera and face it.');
+  const t = live[0];
+  const canvas = (await faceapi.extractFaces(video, [t.det.alignedRect]))[0];
+  const desc = await faceapi.computeFaceDescriptor(canvas);
+  addSamples(name, [Array.from(desc)], cropThumb(t.box)); toast('Sample added for ' + name + '.');
+};
+$('#btnUpload').onclick = () => {
+  if (!$('#enName').value.trim()) return toast('Enter the person’s name first.');
+  if (!modelsReady) return toast('Models are still loading.');
+  $('#enFiles').click();
+};
+$('#enFiles').onchange = async e => {
+  const name = $('#enName').value.trim(); let ok = 0, fail = 0, thumb = null; const descs = [];
+  for (const f of e.target.files) {
+    try {
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(f); });
+      const dets = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 })).withFaceLandmarks(true);
+      if (!dets.length) { fail++; continue; }
+      const d = dets.sort((a, b) => b.detection.box.area - a.detection.box.area)[0];
+      const canvas = (await faceapi.extractFaces(img, [d.alignedRect]))[0];
+      descs.push(Array.from(await faceapi.computeFaceDescriptor(canvas)));
+      if (!thumb) { const c = document.createElement('canvas'); c.width = c.height = 64; const b = d.detection.box, s = Math.max(b.width, b.height) * 1.35; c.getContext('2d').drawImage(img, b.x + b.width / 2 - s / 2, b.y + b.height / 2 - s / 2, s, s, 0, 0, 64, 64); thumb = c.toDataURL('image/jpeg', 0.72); }
+      ok++;
+    } catch (err) { fail++; }
+  }
+  e.target.value = '';
+  if (ok) { addSamples(name, descs, thumb); $('#enName').value = ''; }
+  toast(ok ? `${ok} photo${ok > 1 ? 's' : ''} added for ${name}.` + (fail ? ` ${fail} had no clear face.` : '') : 'No clear face found in those photos.');
+};
+
+/* ---------- people ---------- */
+function renderPeople() {
+  $('#peopleList').innerHTML = db.length ? db.map(p => `<div class="row">${p.thumb ? `<img class="av" src="${p.thumb}" alt="">` : `<div class="av">${esc(p.name[0] || '?')}</div>`}
+    <div class="tx"><b>${esc(p.name)}</b><span>${p.descs.length} sample${p.descs.length > 1 ? 's' : ''}</span></div>
+    <button class="btn sm" data-add="${p.id}">Add samples</button><button class="btn sm dng" data-del="${p.id}">Delete</button></div>`).join('')
+    : '<div class="empty-s">No one enrolled yet. Open the Enroll tab to add the first person.</div>';
+}
+$('#peopleList').onclick = async e => {
+  const add = e.target.dataset.add, del = e.target.dataset.del;
+  if (add) { const p = db.find(x => x.id === add); $('#enName').value = p.name; switchTab('enroll'); toast('Name filled in. Start guided enrollment to add more samples.'); }
+  if (del) {
+    const p = db.find(x => x.id === del);
+    if (await dialog({ title: 'Delete ' + esc(p.name) + '?', body: 'Their face data will be removed from this device.', ok: 'Delete', danger: true })) {
+      db = db.filter(x => x.id !== del); saveDB(); resetTracks(); renderPeople(); renderRoster(); toast(p.name + ' deleted.');
+    }
+  }
+};
+$('#btnExport').onclick = () => {
+  if (!db.length) return toast('Nothing to export yet.');
+  download('edgeface-database.json', new Blob([JSON.stringify({ v: 1, people: db.map(p => ({ name: p.name, thumb: p.thumb, descs: p.descs.map(d => Array.from(d, v => +v.toFixed(4))) })) })], { type: 'application/json' }));
+};
+$('#btnImport').onclick = () => $('#importFile').click();
+$('#importFile').onchange = async e => {
+  try {
+    const j = JSON.parse(await e.target.files[0].text()); let n = 0;
+    for (const p of j.people || []) { const ds = (p.descs || []).filter(a => a.length === 128); if (ds.length && p.name) { addSamples(String(p.name), ds, p.thumb || null); n++; } }
+    toast(n ? n + ' people imported.' : 'No valid people found in that file.');
+  } catch (err) { toast('That file could not be read.'); }
+  e.target.value = '';
+};
+$('#btnWipe').onclick = async () => { if (db.length && await dialog({ title: 'Delete everyone?', body: 'All enrolled faces will be removed from this device.', ok: 'Delete all', danger: true })) { db = []; saveDB(); resetTracks(); renderPeople(); renderRoster(); } };
+
+/* ---------- log ---------- */
+function renderLog() {
+  $('#logList').innerHTML = logs.length ? logs.map((l, i) => `<div class="row">${l.thumb ? `<img class="av" src="${l.thumb}" alt="">` : '<div class="av">?</div>'}
+    <div class="tx"><b>${esc(l.name)}</b><span>${new Date(l.t).toLocaleString()}${l.name !== 'Unknown' ? ', ' + l.pct + '% match' : ''}</span></div>
+    ${l.name === 'Unknown' && l.desc ? `<button class="btn sm" data-enr="${i}">Enroll</button>` : ''}</div>`).join('')
+    : '<div class="empty-s">Recognitions will appear here as people walk into view.</div>';
+}
+$('#logList').onclick = async e => {
+  const i = e.target.dataset.enr; if (i === undefined) return;
+  const l = logs[i]; const name = await dialog({ title: 'Enroll this person', body: 'Enter a name for the unknown face from the log.', input: 'Full name', ok: 'Save person' });
+  if (name) { addSamples(name, [l.desc], l.thumb); logs.splice(i, 1); saveLogs(); renderLog(); toast(name + ' enrolled.'); }
+};
+$('#btnCsv').onclick = () => {
+  if (!logs.length) return toast('The log is empty.');
+  const rows = [['Time', 'Name', 'Match %']].concat(logs.map(l => [new Date(l.t).toISOString(), l.name, l.name === 'Unknown' ? '' : l.pct]));
+  download('edgeface-log.csv', new Blob([rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n')], { type: 'text/csv' }));
+};
+$('#btnClearLog').onclick = () => { logs = []; saveLogs(); renderLog(); };
+
+/* ---------- settings binding ---------- */
+function persist() { store.set('ef.settings', { ...S, running: undefined }); }
+const CFG = [
+  ['sInput', 'inputSize', Number, v => v + ' px'], ['sScore', 'scoreThr', Number, v => v.toFixed(2)], ['sMatch', 'matchThr', Number, v => v.toFixed(2)],
+  ['sCap', 'cap', Number, v => v + ' fps'], ['sBudget', 'budget', Number, v => v], ['sRe', 'reverify', Number, v => v + ' frames'],
+  ['sCool', 'cooldown', Number, v => v + ' s'], ['sCam', 'camRes', String, null],
+  ['sMirror', 'mirror', Boolean], ['sConf', 'showConf', Boolean], ['sLm', 'showLm', Boolean], ['sGov', 'governor', Boolean]
+];
+function syncUI() {
+  for (const [id, key, , fmt] of CFG) {
+    const el = $('#' + id); if (el.type === 'checkbox') el.checked = !!S[key]; else el.value = S[key];
+    const lab = $('#' + id + 'V'); if (lab && fmt) lab.textContent = fmt(Number(S[key]));
+  }
+}
+for (const [id, key, parse, fmt] of CFG) {
+  const el = $('#' + id);
+  el.addEventListener(el.type === 'range' ? 'input' : 'change', () => {
+    const prevRes = S.camRes;
+    S[key] = el.type === 'checkbox' ? el.checked : parse(el.value);
+    const lab = $('#' + id + 'V'); if (lab && fmt) lab.textContent = fmt(S[key]);
+    if (key === 'inputSize') effIdx = Math.max(0, SIZES.indexOf(S.inputSize));
+    if (key === 'mirror') applyMirror();
+    if (key === 'camRes' && prevRes !== S.camRes) restartCam();
+    persist();
+  });
+}
+$('#preset').onchange = e => {
+  Object.assign(S, PRESETS[e.target.value]); effIdx = Math.max(0, SIZES.indexOf(S.inputSize)); syncUI(); persist(); restartCam();
+  toast({ ultra: 'Ultra-light: lowest CPU use.', balanced: 'Balanced: speed and accuracy.', accuracy: 'High-accuracy: best for far or small faces.' }[e.target.value]);
+};
+
+/* ---------- benchmark + snapshot ---------- */
+$('#btnBench').onclick = async () => {
+  if (!S.running) return toast('Start the camera first, then run the benchmark.');
+  const wasBusy = S.running; setStatus('Benchmarking', 'warn');
+  S.running = false; await sleep(300); // pause the main loop
+  const rows = [];
+  for (const size of SIZES) {
+    const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: size, scoreThreshold: S.scoreThr });
+    await faceapi.detectAllFaces(video, opts).withFaceLandmarks(true);
+    const t = performance.now(); for (let i = 0; i < 8; i++) await faceapi.detectAllFaces(video, opts).withFaceLandmarks(true);
+    const ms = (performance.now() - t) / 8; rows.push({ size, ms, fps: 1000 / ms });
+  }
+  const te = performance.now(); const c = document.createElement('canvas'); c.width = c.height = 150; c.getContext('2d').drawImage(video, 0, 0, 150, 150);
+  for (let i = 0; i < 5; i++) await faceapi.computeFaceDescriptor(c); const embMs = (performance.now() - te) / 5;
+  const rec = [...rows].reverse().find(r => r.fps >= S.cap * 1.3) || rows[0];
+  S.running = wasBusy; detectLoop(); renderLoop(); setStatus('Recognising', 'ok');
+  await dialog({
+    title: 'Device benchmark',
+    body: `<table><tr><th>Detector size</th><th>Time per frame</th><th>Max rate</th></tr>${rows.map(r => `<tr><td>${r.size} px</td><td>${r.ms.toFixed(0)} ms</td><td>${r.fps.toFixed(0)} fps</td></tr>`).join('')}</table>
+      <p style="margin-top:12px">Embedding one face takes about <b style="color:var(--ink)">${embMs.toFixed(0)} ms</b>. Recommended detector size for your ${S.cap} fps target: <b style="color:var(--ink)">${rec.size} px</b>.</p>`,
+    ok: 'Apply recommendation', cancel: 'Close'
+  }) && (S.inputSize = rec.size, effIdx = SIZES.indexOf(rec.size), syncUI(), persist(), toast('Detector size set to ' + rec.size + ' px.'));
+};
+$('#btnSnap').onclick = () => {
+  if (!S.running) return toast('Start the camera first.');
+  const c = document.createElement('canvas'); c.width = video.videoWidth; c.height = video.videoHeight; const x = c.getContext('2d');
+  x.save(); if (S.mirror) { x.translate(c.width, 0); x.scale(-1, 1); } x.drawImage(video, 0, 0); x.restore();
+  x.drawImage(overlay, 0, 0, c.width, c.height);
+  c.toBlob(b => download('edgeface-' + Date.now() + '.png', b));
+};
+
+/* ---------- init ---------- */
+syncUI(); renderPeople(); renderLog(); renderRoster(); updateMetrics();
+window.addEventListener('beforeunload', () => stream && stream.getTracks().forEach(t => t.stop()));
+loadModels();
+</script>
+</body>
+</html>
